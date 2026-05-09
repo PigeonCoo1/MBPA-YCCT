@@ -40,6 +40,15 @@ If points still don't show up after 30+ searches:
 
 If Edge is **not** the active window, nothing happens — the script just waits.
 
+## Updates
+
+`start.bat` now auto-updates `random_edge_searcher.ps1` from GitHub every time you launch it. So:
+
+- **Normal updates:** just re-open `start.bat`. It pulls the latest script before running. No re-download needed.
+- **Offline / GitHub unreachable:** it silently falls back to your local copy and runs that.
+- **Pin a version:** open `start.bat` in Notepad and set `AUTO_UPDATE=0`.
+- **Update `start.bat` itself:** rare, but if the launcher changes, you'll need to re-download the ZIP. Your `used_searches.txt` and `state.txt` are local-only — copy them to the new folder before running, and the memory + daily counter carry over.
+
 ## Tweaking
 
 Open `random_edge_searcher.ps1` in Notepad and change:
