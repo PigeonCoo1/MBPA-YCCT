@@ -5,12 +5,17 @@
 # and never repeated, even across restarts.
 
 # ---------------- Config ----------------
-$IntervalSeconds   = 15      # seconds between searches while Edge is active
-$MaxGenerateTries  = 2000    # how hard to try to find an unused phrase
+$MinIntervalSeconds = 18      # min seconds between searches (randomized)
+$MaxIntervalSeconds = 32      # max seconds between searches (randomized)
+$DailyCap           = 33      # stop after this many searches per calendar day
+                              # (Microsoft Rewards desktop cap is ~30 searches/day,
+                              #  33 leaves a small safety margin)
+$MaxGenerateTries   = 2000    # how hard to try to find an unused phrase
 
 # ---------------- Paths -----------------
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $UsedFile  = Join-Path $ScriptDir 'used_searches.txt'
+$StateFile = Join-Path $ScriptDir 'state.txt'
 
 # ---------------- Win32 -----------------
 if (-not ('REMS.Win32' -as [type])) {
@@ -136,42 +141,91 @@ function Save-Used([string]$q) {
     Add-Content -Path $UsedFile -Value $q -Encoding UTF8
 }
 
+# ---------------- Daily counter persistence ----------------
+function Get-Today { (Get-Date).ToString('yyyy-MM-dd') }
+
+function Load-State {
+    $state = @{ date = (Get-Today); count = 0 }
+    if (Test-Path $StateFile) {
+        try {
+            $line = (Get-Content $StateFile -ErrorAction Stop | Select-Object -First 1).Trim()
+            if ($line -match '^(\d{4}-\d{2}-\d{2})\|(\d+)$') {
+                $state.date  = $Matches[1]
+                $state.count = [int]$Matches[2]
+            }
+        } catch { }
+    }
+    if ($state.date -ne (Get-Today)) {
+        $state.date  = Get-Today
+        $state.count = 0
+    }
+    return $state
+}
+
+function Save-State($state) {
+    "$($state.date)|$($state.count)" | Set-Content -Path $StateFile -Encoding UTF8
+}
+
 # ---------------- Edge search ----------------
+# Resolve Edge's executable once at startup so the search call mirrors what a
+# real user does (a Bing URL opened by msedge.exe, indistinguishable from
+# typing into the address bar).
+$Script:EdgeExe = $null
+foreach ($p in @(
+    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
+    (Join-Path $env:ProgramFiles        'Microsoft\Edge\Application\msedge.exe'),
+    (Join-Path $env:LOCALAPPDATA        'Microsoft\Edge\Application\msedge.exe')
+)) {
+    if ($p -and (Test-Path $p)) { $Script:EdgeExe = $p; break }
+}
+
 function Open-EdgeSearch([string]$query) {
     $encoded = [Uri]::EscapeDataString($query)
-    $url     = "https://www.bing.com/search?q=$encoded"
+    # form=QBLH is the parameter Bing's own search box uses; including it makes
+    # the query look like a normal in-Edge Bing search, which is what
+    # Microsoft Rewards counts.
+    $url = "https://www.bing.com/search?q=$encoded&form=QBLH"
 
-    # Preferred: protocol handler opens a new tab in the running Edge window.
-    try {
-        Start-Process "microsoft-edge:$url" -ErrorAction Stop
-        return $true
-    } catch { }
-
-    # Fallback: invoke msedge.exe directly.
-    $candidates = @(
-        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
-        (Join-Path $env:ProgramFiles        'Microsoft\Edge\Application\msedge.exe'),
-        (Join-Path $env:LOCALAPPDATA        'Microsoft\Edge\Application\msedge.exe')
-    )
-    foreach ($p in $candidates) {
-        if ($p -and (Test-Path $p)) {
-            try { Start-Process $p -ArgumentList $url -ErrorAction Stop; return $true } catch { }
-        }
+    if ($Script:EdgeExe) {
+        try { Start-Process $Script:EdgeExe -ArgumentList $url -ErrorAction Stop; return $true } catch { }
     }
+    # Fallback to the protocol handler if the exe wasn't found.
+    try { Start-Process "microsoft-edge:$url" -ErrorAction Stop; return $true } catch { }
     return $false
 }
 
 # ---------------- Main loop ----------------
+$state = Load-State
+
 Write-Host ''
 Write-Host '=== Random Edge Searcher ==='
-Write-Host "Memory file : $UsedFile"
-Write-Host "Phrases used so far : $($UsedSet.Count)"
-Write-Host "Interval    : $IntervalSeconds seconds (only fires while Edge is the active window)"
+Write-Host "Memory file        : $UsedFile"
+Write-Host "Phrases used total : $($UsedSet.Count)"
+Write-Host "Edge executable    : $(if ($Script:EdgeExe) { $Script:EdgeExe } else { '(not found - will use microsoft-edge: protocol)' })"
+Write-Host "Interval           : $MinIntervalSeconds-$MaxIntervalSeconds seconds (randomized)"
+Write-Host "Daily cap          : $DailyCap searches (today: $($state.count))"
+Write-Host '** For Microsoft Rewards points you MUST be signed into your Microsoft account in Edge. **'
 Write-Host 'Press Ctrl+C in this window to stop.'
 Write-Host ''
 
 while ($true) {
-    Start-Sleep -Seconds $IntervalSeconds
+    $sleepFor = $rand.Next($MinIntervalSeconds, $MaxIntervalSeconds + 1)
+    Start-Sleep -Seconds $sleepFor
+
+    # Roll the day over if midnight passed.
+    if ($state.date -ne (Get-Today)) {
+        $state.date  = Get-Today
+        $state.count = 0
+        Save-State $state
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] New day; daily counter reset."
+    }
+
+    if ($state.count -ge $DailyCap) {
+        # Cap reached - don't burn unique phrases on no-point searches.
+        Start-Sleep -Seconds 60
+        continue
+    }
+
     if (-not (Test-EdgeActive)) { continue }
 
     $q = Get-UnusedQuery
@@ -182,7 +236,9 @@ while ($true) {
 
     if (Open-EdgeSearch $q) {
         Save-Used $q
-        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Searched: $q"
+        $state.count++
+        Save-State $state
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] [$($state.count)/$DailyCap today] Searched: $q"
     } else {
         Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Failed to open Edge for: $q"
     }
