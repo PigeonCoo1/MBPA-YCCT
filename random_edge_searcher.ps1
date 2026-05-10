@@ -5,17 +5,25 @@
 # and never repeated, even across restarts.
 
 # ---------------- Config ----------------
-$MinIntervalSeconds = 18      # min seconds between searches (randomized)
-$MaxIntervalSeconds = 32      # max seconds between searches (randomized)
-$DailyCap           = 33      # stop after this many searches per calendar day
-                              # (Microsoft Rewards desktop cap is ~30 searches/day,
-                              #  33 leaves a small safety margin)
-$MaxGenerateTries   = 2000    # how hard to try to find an unused phrase
+$MinIntervalSeconds  = 22      # min seconds between searches (randomized)
+$MaxIntervalSeconds  = 38      # max seconds between searches (randomized)
+$DailyCap            = 33      # stop after this many searches per calendar day
+                               # (Microsoft Rewards desktop cap is ~30 searches/day,
+                               #  33 leaves a small safety margin)
+$MaxGenerateTries    = 2000    # how hard to try to find an unused phrase
+$UseAddressBarTyping = $true   # If true, simulates Ctrl+T -> paste URL -> Enter so
+                               # the search opens as a FOREGROUND tab and dwells
+                               # long enough for Microsoft Rewards to count it.
+                               # If false, hands the URL to msedge.exe (faster but
+                               # may open as a background/throttled tab).
 
 # ---------------- Paths -----------------
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $UsedFile  = Join-Path $ScriptDir 'used_searches.txt'
 $StateFile = Join-Path $ScriptDir 'state.txt'
+
+# Required for SendKeys + Clipboard.
+Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue | Out-Null
 
 # ---------------- Win32 -----------------
 if (-not ('REMS.Win32' -as [type])) {
@@ -186,12 +194,59 @@ function Open-EdgeSearch([string]$query) {
     # Microsoft Rewards counts.
     $url = "https://www.bing.com/search?q=$encoded&form=QBLH"
 
+    if ($UseAddressBarTyping) {
+        $ok = Invoke-EdgeSearchViaAddressBar $url
+        if ($ok) { return $true }
+        # If SendKeys/clipboard failed (e.g. focus changed), fall through to shell.
+    }
+    return (Invoke-EdgeSearchViaShell $url)
+}
+
+function Invoke-EdgeSearchViaShell([string]$url) {
     if ($Script:EdgeExe) {
         try { Start-Process $Script:EdgeExe -ArgumentList $url -ErrorAction Stop; return $true } catch { }
     }
-    # Fallback to the protocol handler if the exe wasn't found.
     try { Start-Process "microsoft-edge:$url" -ErrorAction Stop; return $true } catch { }
     return $false
+}
+
+function Invoke-EdgeSearchViaAddressBar([string]$url) {
+    # Re-confirm Edge is still the foreground window right before sending keys.
+    if (-not (Test-EdgeActive)) { return $false }
+
+    # Stash and replace the clipboard so Ctrl+V pastes our URL.
+    $hadText = $false
+    $oldClip = ''
+    try {
+        if ([System.Windows.Forms.Clipboard]::ContainsText()) {
+            $oldClip = [System.Windows.Forms.Clipboard]::GetText()
+            $hadText = $true
+        }
+    } catch { }
+
+    try { [System.Windows.Forms.Clipboard]::SetText($url) } catch { return $false }
+
+    $sent = $false
+    try {
+        # Ctrl+T opens a new foreground tab. Ctrl+V pastes the URL. Enter navigates.
+        [System.Windows.Forms.SendKeys]::SendWait('^t')
+        Start-Sleep -Milliseconds 450
+        if (Test-EdgeActive) {
+            [System.Windows.Forms.SendKeys]::SendWait('^v')
+            Start-Sleep -Milliseconds 250
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            $sent = $true
+        }
+    } catch { }
+
+    # Give the paste a moment to settle, then restore the old clipboard text.
+    Start-Sleep -Milliseconds 500
+    try {
+        if ($hadText) { [System.Windows.Forms.Clipboard]::SetText($oldClip) }
+        else          { [System.Windows.Forms.Clipboard]::Clear() }
+    } catch { }
+
+    return $sent
 }
 
 # ---------------- Main loop ----------------

@@ -30,7 +30,7 @@ if "%AUTO_UPDATE%"=="1" (
     echo.
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0random_edge_searcher.ps1"
+powershell.exe -STA -NoProfile -ExecutionPolicy Bypass -File "%~dp0random_edge_searcher.ps1"
 echo.
 echo Script exited. Press any key to close this window.
 pause >nul

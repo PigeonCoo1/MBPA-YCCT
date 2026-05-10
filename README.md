@@ -35,8 +35,10 @@ If points still don't show up after 30+ searches:
 1. Download or clone this folder onto your PC.
 2. Double-click **`start.bat`**.
 3. Bring **Microsoft Edge** to the front and use it normally.
-4. Every 18–32 seconds (randomized), while Edge is the active window, a new tab will open with a fresh random search — up to 33 searches per day.
+4. Every 22–38 seconds (randomized), while Edge is the active window, a new **foreground** tab opens with a fresh random search — up to 33 searches per day.
 5. To stop: close the black `start.bat` window (or press `Ctrl+C` in it).
+
+> Tabs open in the foreground because the script types into Edge's address bar (`Ctrl+T` → paste → Enter) instead of just handing Edge a URL. That's what makes the page actually load and dwell long enough for Rewards to count it. Don't type or paste during the half-second window each search fires; the script briefly uses the clipboard and restores it afterwards.
 
 If Edge is **not** the active window, nothing happens — the script just waits.
 
