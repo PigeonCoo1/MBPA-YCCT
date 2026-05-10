@@ -10,6 +10,20 @@ periodically opens a new tab and runs a random nonsense Bing search like:
 Every phrase it has ever used is saved to `used_searches.txt` in this folder, so
 **it never repeats a phrase — even if you close `start.bat` and reopen it later.**
 
+## Microsoft Rewards points
+
+If you want these searches to earn Microsoft Rewards points:
+
+1. **Sign into your Microsoft account in Edge** (top-right profile icon — the same one tied to Rewards). If you're not signed in, no searches will count.
+2. Make sure Edge is the active window when the search fires (the script already enforces this).
+3. The script paces itself with a randomized 18–32 second interval and stops at **33 searches/day** (the desktop Rewards cap is ~30). The daily counter persists in `state.txt` across restarts so you don't burn unique phrases past the cap.
+4. Points usually appear within a few minutes; sometimes Microsoft delays attribution by several hours. Check your Rewards dashboard at <https://rewards.bing.com/>.
+
+If points still don't show up after 30+ searches:
+- Confirm the Rewards profile icon in Edge is green/active.
+- Try one search manually from `bing.com` while signed in — if that doesn't earn points either, your account/region is the issue, not the script.
+- Avoid running this in an InPrivate window (private tabs aren't tied to your account).
+
 ## Requirements
 
 - Windows 10 or 11
@@ -21,16 +35,28 @@ Every phrase it has ever used is saved to `used_searches.txt` in this folder, so
 1. Download or clone this folder onto your PC.
 2. Double-click **`start.bat`**.
 3. Bring **Microsoft Edge** to the front and use it normally.
-4. Every 15 seconds, while Edge is the active window, a new tab will open with a fresh random search.
+4. Every 22–38 seconds (randomized), while Edge is the active window, a new **foreground** tab opens with a fresh random search — up to 33 searches per day.
 5. To stop: close the black `start.bat` window (or press `Ctrl+C` in it).
 
+> Tabs open in the foreground because the script types into Edge's address bar (`Ctrl+T` → paste → Enter) instead of just handing Edge a URL. That's what makes the page actually load and dwell long enough for Rewards to count it. Don't type or paste during the half-second window each search fires; the script briefly uses the clipboard and restores it afterwards.
+
 If Edge is **not** the active window, nothing happens — the script just waits.
+
+## Updates
+
+`start.bat` now auto-updates `random_edge_searcher.ps1` from GitHub every time you launch it. So:
+
+- **Normal updates:** just re-open `start.bat`. It pulls the latest script before running. No re-download needed.
+- **Offline / GitHub unreachable:** it silently falls back to your local copy and runs that.
+- **Pin a version:** open `start.bat` in Notepad and set `AUTO_UPDATE=0`.
+- **Update `start.bat` itself:** rare, but if the launcher changes, you'll need to re-download the ZIP. Your `used_searches.txt` and `state.txt` are local-only — copy them to the new folder before running, and the memory + daily counter carry over.
 
 ## Tweaking
 
 Open `random_edge_searcher.ps1` in Notepad and change:
 
-- `$IntervalSeconds = 15` — how often to fire a search while Edge is active.
+- `$MinIntervalSeconds` / `$MaxIntervalSeconds` — search pacing (default 18–32s).
+- `$DailyCap` — max searches per calendar day (default 33).
 - The `$Nouns`, `$Verbs`, `$Places`, `$Adjectives` arrays — to add your own words.
 - The `$Templates` array — to add new sentence shapes.
 
@@ -41,6 +67,7 @@ Open `random_edge_searcher.ps1` in Notepad and change:
 | `start.bat` | Double-click to run. |
 | `random_edge_searcher.ps1` | The actual script. |
 | `used_searches.txt` | Created on first run. The permanent memory of every phrase used. **Do not delete** unless you want it to forget. |
+| `state.txt` | Tracks today's date and search count so the daily cap survives restarts. |
 
 ## Troubleshooting
 
